@@ -16,7 +16,7 @@ app.use(express.json());
 app.get('/api/v1/health', (req: Request, res: Response) => {
   res.json({
     status: 'online',
-    service: 'SoccerMatch API',
+    service: 'SoccerMatch API v4',
     version: 'v0.1.0',
     timestamp: new Date().toISOString(),
   });
@@ -53,10 +53,18 @@ app.post('/api/v1/auth/login', async (req: Request, res: Response) => {
   });
 });
 
-// Endpoint de Partidos
+// Endpoint de Organismos B2B (Organizaciones)
+app.get('/api/v1/organizations', async (req: Request, res: Response) => {
+  const orgs = await prisma.organization.findMany({
+    include: { staff: { include: { user: true } }, tournaments: true },
+  });
+  res.json({ count: orgs.length, data: orgs });
+});
+
+// Endpoint de Partidos (incluye oficiales y suspendidos)
 app.get('/api/v1/matches', async (req: Request, res: Response) => {
   const matches = await prisma.match.findMany({
-    include: { court: true, creator: true },
+    include: { court: true, creator: true, officialResult: true, suspension: true },
     orderBy: { createdAt: 'desc' },
   });
   res.json({ count: matches.length, data: matches });
@@ -70,14 +78,14 @@ app.get('/api/v1/venues', async (req: Request, res: Response) => {
   res.json({ count: venues.length, data: venues });
 });
 
-// Endpoint de Torneos
+// Endpoint de Torneos & Fixtures
 app.get('/api/v1/tournaments', async (req: Request, res: Response) => {
   const tournaments = await prisma.tournament.findMany({
-    include: { org: true },
+    include: { organization: true, rounds: { include: { fixtures: true } } },
   });
   res.json({ count: tournaments.length, data: tournaments });
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 SoccerMatch API backend corriendo en http://localhost:${PORT}`);
+  console.log(`🚀 SoccerMatch API v4 corriendo en http://localhost:${PORT}`);
 });

@@ -1,14 +1,14 @@
-import { PrismaClient, Role, Rarity } from '@prisma/client';
+import { PrismaClient, Role, Rarity, MatchStatus, OfficialResultStatus, SuspensionReason } from '@prisma/client';
 import bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('🌱 Sembrando datos de prueba para SoccerMatch API...');
+  console.log('🌱 Sembrando datos v4 oficiales de prueba para SoccerMatch API...');
 
   const passwordHash = await bcrypt.hash('secret123', 10);
 
-  // 1. Crear usuarios de prueba para los 5 roles
+  // 1. Usuarios para los 5 roles
   const player = await prisma.user.upsert({
     where: { email: 'jugador@soccermatch.cl' },
     update: {},
@@ -58,7 +58,7 @@ async function main() {
     },
   });
 
-  const org = await prisma.user.upsert({
+  const orgUser = await prisma.user.upsert({
     where: { email: 'organizacion@soccermatch.cl' },
     update: {},
     create: {
@@ -70,7 +70,23 @@ async function main() {
     },
   });
 
-  // 2. Crear Sede y Cancha
+  // 2. Organización B2B
+  const org = await prisma.organization.create({
+    data: {
+      name: 'Asociación de Fútbol Biobío (ANFA)',
+      description: 'Ente rector del fútbol amateur en la VIII Región del Biobío',
+      orgType: 'amateur_league',
+      legalId: '65.123.456-7',
+      staff: {
+        create: {
+          userId: orgUser.id,
+          role: 'owner',
+        },
+      },
+    },
+  });
+
+  // 3. Sede & Canchas
   const venue = await prisma.venue.create({
     data: {
       name: 'Complejo Deportivo Biobío',
@@ -78,38 +94,124 @@ async function main() {
       ownerId: venueOwner.id,
       courts: {
         create: [
-          { name: 'Cancha 1 - Pasto Sintético', surfaceType: 'Pasto Sintético FIFA', hourlyRate: 35000 },
+          { name: 'Cancha 1 - Pasto Sintético FIFA', surfaceType: 'Pasto Sintético', hourlyRate: 35000 },
           { name: 'Cancha 2 - Techada LED', surfaceType: 'Parquet Multicancha', hourlyRate: 28000 },
         ],
+      },
+      orgVenues: {
+        create: {
+          organizationId: org.id,
+          status: 'active',
+        },
       },
     },
     include: { courts: true },
   });
 
-  // 3. Crear Partido
-  await prisma.match.create({
+  // 4. Equipos
+  const teamA = await prisma.team.create({
     data: {
-      title: 'Pichanga Nocturna 7v7',
+      name: 'Real Biobío FC',
+      badgeUrl: 'https://soccermatch.cl/badges/real_biobio.png',
+      coachId: coach.id,
+    },
+  });
+
+  const teamB = await prisma.team.create({
+    data: {
+      name: 'Deportes Concepción Amateur',
+      badgeUrl: 'https://soccermatch.cl/badges/dep_concepcion.png',
+    },
+  });
+
+  // 5. Torneo Biobío 50 Años
+  const tournament = await prisma.tournament.create({
+    data: {
+      name: 'Copa Apertura Biobío 2026',
+      category: 'Primera Infantil & 50 Años',
+      organizationId: org.id,
+    },
+  });
+
+  // 6. Jornada / Fixture Round 1
+  const round1 = await prisma.fixtureRound.create({
+    data: {
+      tournamentId: tournament.id,
+      roundNumber: 1,
+      name: 'Fecha 1 - Fase Regular',
+    },
+  });
+
+  // 7. Partido Normal & Partido Suspendido
+  const normalMatch = await prisma.match.create({
+    data: {
+      title: 'Real Biobío vs Dep. Concepción (Fecha 1)',
       courtId: venue.courts[0].id,
-      creatorId: player.id,
+      creatorId: orgUser.id,
       date: '2026-07-28',
-      startTime: '21:00',
-      endTime: '22:00',
-      pricePlayer: 3500,
-      maxPlayers: 14,
+      startTime: '20:00',
+      endTime: '21:30',
+      status: MatchStatus.FINISHED,
+      officialResult: {
+        create: {
+          tournamentId: tournament.id,
+          homeScore: 3,
+          awayScore: 1,
+          status: OfficialResultStatus.PROVISIONAL,
+          refereeName: 'Roberto Tobar',
+          refereeNotes: 'Partido sin mayores incidencias.',
+        },
+      },
     },
   });
 
-  // 4. Crear Torneo Biobío
-  await prisma.tournament.create({
+  const suspendedMatch = await prisma.match.create({
     data: {
-      name: 'Copa Apertura Biobío 50 Años',
-      category: 'Primera Infantil & Honor',
-      orgId: org.id,
+      title: 'Atletico Sur vs Universitario (Fecha 1)',
+      courtId: venue.courts[1].id,
+      creatorId: orgUser.id,
+      date: '2026-07-28',
+      startTime: '21:30',
+      endTime: '23:00',
+      status: MatchStatus.SUSPENDED,
+      suspension: {
+        create: {
+          suspendedById: orgUser.id,
+          reason: SuspensionReason.WEATHER,
+          notes: 'Suspendido por intensa lluvia en Concepción.',
+        },
+      },
     },
   });
 
-  console.log('✅ Semilla completada con exito.');
+  // 8. Fixtures
+  await prisma.fixture.create({
+    data: {
+      tournamentId: tournament.id,
+      fixtureRoundId: round1.id,
+      homeTeamId: teamA.id,
+      awayTeamId: teamB.id,
+      venueId: venue.id,
+      matchId: normalMatch.id,
+      scheduledDate: '2026-07-28',
+      status: 'completed',
+    },
+  });
+
+  // 9. Estadísticas Oficiales Acumuladas
+  await prisma.officialTeamStats.create({
+    data: {
+      teamId: teamA.id,
+      tournamentId: tournament.id,
+      matchesPlayed: 1,
+      wins: 1,
+      goalsFor: 3,
+      goalsAgainst: 1,
+      points: 3,
+    },
+  });
+
+  console.log('✅ Semilla v4 completada con éxito.');
 }
 
 main()
