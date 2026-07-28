@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: soccermatch_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: soccermatch
+      POSTGRES_PASSWORD: secretpass
+      POSTGRES_DB: soccermatch_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
